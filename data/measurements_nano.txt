@@ -1,0 +1,19 @@
+Igarapé;-90.9
+Guayos;-43.4
+Forbes;90.3
+Farmington;-45.5
+Mahajanga;-25.9
+Cedar Hills;43.0
+Mālingaon;71.2
+Sevierville;-73.0
+Boundiali;0.7
+Borāzjān;-95.5
+Afourar;-14.8
+Mānjha;21.7
+Eisenstadt;-60.6
+Ventspils;28.7
+Naini;-25.3
+Naumburg;-50.0
+Ŏjŏk-tong;56.6
+Nuoro;-60.3
+Erlanger;32.6
