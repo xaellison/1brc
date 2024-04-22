@@ -13,13 +13,7 @@ const TAB = "\t"[1] |> UInt8
 names = CSV.File("data/weather_stations_clean.csv", header=["name", "x"]).name
 
 
-# for testing
-function name_digest(str, p1=11, p2=53)
-    parse_name_digest(Vector{UInt8}("$(str);"), 1, p1, p2)[1]
-end
-
-
-@inline function parse_name_digest(buffer, i, p1=11, p2=53)
+@inline function parse_name_index(buffer, i, p1=11, p2=53)
     # p1 and p2 are params that adjust the hashing
     @inbounds begin
         # creates a shitty hash of the name encoded starting at buffer[i] until the next semi colon from position i 
@@ -30,15 +24,7 @@ end
         end
 
         i0 = i
-        #@info "buffer here to end: $(String(buffer[i:end]))"
-        out = zero(UInt64)
         while buffer[i] != SEMICOL
-            if i - i0 < 8 
-                shift_bits = 8 * (i - i0)
-            else
-                shift_bits = ((i - i0) * p1) % p2
-            end
-            out = out ⊻ (UInt64(buffer[i]) << shift_bits)
             i += 1
         end
         
@@ -46,7 +32,7 @@ end
     end
 end
 
-@inline function parse_decimal(buffer, i)
+@inline function parse_decimal(buffer :: AbstractVector{UInt8}, i :: Int)
     @inbounds begin
     # non-zero padded decimal from -99.9 to 99.9 always with one decimal place. Treat as int from -999 to 999
   #  @info "decimal start, rest of buffer: $(String(buffer[i:end]))"
@@ -67,12 +53,12 @@ end
     if buffer[i] == PERIOD
         # if next char is '.' then abs this number < 10
         i += 1
-        value *= 10
+        value *= Int32(10)
         value += Int32(buffer[i] - 0x30)
         i += 1
     else
         # abs this number >= 10
-        value *= 10
+        value *= Int32(10)
         # add next leading decimal
         value += Int32(buffer[i] - 0x30)
         
@@ -100,7 +86,7 @@ function process_chunk!(result_dict, buffer)
 
     while bytes_read + 1 < length(buffer)
         
-        string_start, string_end, bytes_read = parse_name_digest(buffer, bytes_read)
+        string_start, string_end, bytes_read = parse_name_index(buffer, bytes_read)
         if bytes_read + 1 >= length(buffer)
             break
         end
@@ -108,10 +94,10 @@ function process_chunk!(result_dict, buffer)
         
         reading = Int32(reading)
         
-        key = StringView(view(buffer, string_start:string_end))
+        key = String(view(buffer, string_start:string_end))
         
         if haskey(result_dict, key)
-            key = String(key)
+           # key = String(key)
             V = result_dict[key]
             V = merge_values(V, (reading, reading, reading, Int32(1)))
             result_dict[key] = V
@@ -158,7 +144,7 @@ end
 
 
 function main()
-    PATH = "./data/measurements_mid.txt"
+    PATH = "/Users/alex/dev/1brc_data/measurements_small.txt"
     my_file_size = filesize(PATH)
     @info "file size = $my_file_size"
     
@@ -210,17 +196,11 @@ function main()
     end
     out = results[1]
 
-    for i in 2:length(results)
-        for k in keys(results[i])
-            if k in keys(out)
-                out[k] = merge_values(out[k], results[i][k])
-            else
-                out[k] = results[i][k]
-            end
-        end
-    end
+    # WARN deleted output merging for comparison
+    
     out
 end
 
-@time d = main()
+main()
+@time main()
 

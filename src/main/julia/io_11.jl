@@ -1,4 +1,4 @@
-# unsuccessful bid to improve dict
+# like base dict with string keys but less allocs and GC time
 
 using CSV, DataFrames, StringViews
 
@@ -12,74 +12,6 @@ const TAB = "\t"[1] |> UInt8
 
 names = CSV.File("data/weather_stations_clean.csv", header=["name", "x"]).name
 
-
-# for testing
-function name_digest(str, p1=11, p2=53)
-    parse_name_digest(Vector{UInt8}("$(str);"), 1, p1, p2)[1]
-end
-
-function name_digest(buffer::StringView, p1=11, p2=53)
-    out = zero(UInt64)
-    i0 = 1
-    for (i, c) in enumerate(buffer) 
-        if i - i0 < 8 
-            shift_bits = 8 * (i - i0)
-        else
-            shift_bits = ((i - i0) * p1) % p2
-        end
-        out = out ⊻ (UInt64(c) << shift_bits)
-    end
-    return out
-end
-
-
-@inline function parse_name_digest(buffer, i, p1=11, p2=53)
-    # p1 and p2 are params that adjust the hashing
-    @inbounds begin
-        # creates a shitty hash of the name encoded starting at buffer[i] until the next semi colon from position i 
-        # returns hash and index to start parsing number at
-        
-        if buffer[i] == NEWLINE
-            i += 1
-        end
-
-        i0 = i
-        #@info "buffer here to end: $(String(buffer[i:end]))"
-        out = zero(UInt64)
-        
-        while buffer[i] != SEMICOL    
-            if i - i0 < 8 
-                shift_bits = 8 * (i - i0)
-            else
-                shift_bits = ((i - i0) * p1) % p2
-            end
-            out = out ⊻ (UInt64(buffer[i]) << shift_bits)
-            i += 1
-        end
-        
-        return out, i + 1
-    end
-end
-
-@inline function parse_name_index(buffer, i, p1=11, p2=53)
-    # p1 and p2 are params that adjust the hashing
-    @inbounds begin
-        # creates a shitty hash of the name encoded starting at buffer[i] until the next semi colon from position i 
-        # returns hash and index to start parsing number at
-        
-        if buffer[i] == NEWLINE
-            i += 1
-        end
-
-        i0 = i
-        #@info "buffer here to end: $(String(buffer[i:end]))"
-        while buffer[i] != SEMICOL
-            i += 1
-        end
-        
-        return i0, i - 1, i + 1
-    end
-end
 
 struct StringViewDict{K, V}
     digest_map :: Dict{K, Vector{Tuple{String, Int}}}
@@ -96,7 +28,7 @@ import Base: haskey
 
 
 function setindex!(d::StringViewDict{K, V}, value :: V, key :: StringView) :: V where {K, V}
-    digest = name_digest(key)
+    digest = hash(key)
     if haskey(d.digest_map, digest)
         
         write_index = -1
@@ -129,7 +61,7 @@ end
 
 
 function getindex(d::StringViewDict{K, V}, key :: StringView) :: V where {K, V}
-    digest = name_digest(key)
+    digest = hash(key)
     if ! haskey(d.digest_map, digest)
         @info "early"
         throw(KeyError(key))
@@ -145,7 +77,7 @@ function getindex(d::StringViewDict{K, V}, key :: StringView) :: V where {K, V}
 end
 
 function haskey(d::StringViewDict, key :: StringView)
-    digest = name_digest(key)
+    digest = hash(key)
     if ! haskey(d.digest_map, digest)
         return false
     end
@@ -208,21 +140,21 @@ end
     end
 end
 
-function process_chunk!(result_dict, buffer)
+function process_chunk!(result_dict::StringViewDict{UInt64, Tuple{Int32, Int32, Int32, Int32}}, buffer)
     rows = 0
     bytes_read = 1
 
     while bytes_read + 1 < length(buffer)
         
-        string_start, string_end, bytes_read = parse_name_index(buffer, bytes_read)
-        if bytes_read + 1 >= length(buffer)
-            break
-        end
+        sc = findnext(x -> x==SEMICOL, buffer, bytes_read)
+        v = @view buffer[bytes_read:sc-1]
+        key = StringView(v)
+        bytes_read = sc + 1
+
         reading, bytes_read = parse_decimal(buffer, bytes_read)
         
         reading = Int32(reading)
        
-        key = StringView(view(buffer, string_start:string_end))
         if haskey(result_dict, key)
             V = result_dict[key]
             V = merge_values(V, (reading, reading, reading, Int32(1)))
@@ -268,7 +200,7 @@ end
 
 
 function main()
-    PATH = "./data/measurements_mid.txt"
+    PATH = "/Users/alex/dev/1brc_data/measurements_small.txt"
     my_file_size = filesize(PATH)
     @info "file size = $my_file_size"
     
@@ -293,7 +225,7 @@ function main()
        open(PATH, "r") do file
             skip(file, thread_start - 1)
             
-            function f() 
+            while true
                 # either fill buffer or go to end of file, whichever is less
                 bytes_to_read = min(BUFFER_SIZE, thread_end - position(file))
                 readbytes!(file, buffer, bytes_to_read)
@@ -313,10 +245,10 @@ function main()
                 process_chunk!(result_dict, my_copy)
 
                 if bytes_to_read < BUFFER_SIZE || position(file) == my_file_size
-                    return
+                    break
                 end
             end
-            @info @report_opt f()
+            #@info @report_opt f()
         end
         results[thread_id] = result_dict
     end
@@ -325,5 +257,5 @@ function main()
     out
 end
 
-@time d = main()
-
+d = main()
+@time main()
